@@ -1,12 +1,32 @@
 version: '3.0'
 services:
+  consul:
+    image: consul
+    container_name: consul.service
+    command: agent -server -bind 0.0.0.0 -client 0.0.0.0 -dev 
+    image: consul:latest
+    volumes:
+      - ./etc/consul/config:/consul/config
+    ports:
+        - "8500:8500"  
+  registrator:
+      image: gliderlabs/registrator:latest
+      command: -internal consul://consul:8500
+      volumes:
+          - "/var/run/docker.sock:/tmp/docker.sock"
   jaeger:
-      image: jaegertracing/all-in-one:1.6
+    image: jaegertracing/all-in-one:1.6
+    ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14268:14268
+      - 9411:9411
+  prometheus:
+      image: prom/prometheus
       ports:
-        - 5775:5775/udp
-        - 6831:6831/udp
-        - 6832:6832/udp
-        - 5778:5778
-        - 16686:16686
-        - 14268:14268
-        - 9411:9411
+        - 9091:9090
+      volumes:
+        - ./etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml               

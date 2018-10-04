@@ -1,7 +1,11 @@
-import tracer from "./tracer";
+
 import * as express from "express";
 import * as opentracing from "opentracing";
 import * as Prometheus from "prom-client";
+
+import tracer from "./tracer";
+import service from "./service";
+
 const app = express();
 
 const httpRequestDurationMicroseconds = new Prometheus.Histogram({
@@ -13,20 +17,22 @@ const httpRequestDurationMicroseconds = new Prometheus.Histogram({
 });
 app.use((req, res, next) => {
     const span = tracer.startSpan('http_request');
+
     span.setTag(opentracing.Tags.HTTP_METHOD, req.method);
     span.setTag(opentracing.Tags.HTTP_URL, req.path);
     span.log({ event: 'request_start' });
-    if (/^\/metrics/.test(req.path)) {
-        next();
-    } else {
-        const start = Date.now();
-        next();
+
+    const start = Date.now();
+    (<any>req).tracing = { span };
+    next();
+
+    res.on('finish', () => {
         httpRequestDurationMicroseconds
             .labels(req.route ? req.route.path : req.path)
             .observe(Date.now() - start);
-    }
-    span.log({ event: 'request_end' });
-    span.finish();
+        span.log({ event: 'request_end' });
+        span.finish();
+    });
 });
 
 app.get('/metrics', (req, res) => {
@@ -34,8 +40,22 @@ app.get('/metrics', (req, res) => {
     res.end(Prometheus.register.metrics());
 });
 
-app.get('/', (req, res) => {
-    res.end('hello');
+app.get('/', async (req, res) => {
+    const span = tracer.startSpan('handler', { childOf: (<any>req).tracing.span });
+    span.log({ event: 'handler_start' });
+    const content = await service.serviceMethod();
+    span.log({ event: 'handler_finish' });
+    span.finish();
+    res.end(content);
+});
+
+app.get('/throwing', async (req, res) => {
+    try {
+        await service.throwingMethod();
+    } finally {
+        res.end('Yeah Yeah');
+    }
+
 });
 
 app.listen(8090, () => console.log('app is listening on port 8090'));
